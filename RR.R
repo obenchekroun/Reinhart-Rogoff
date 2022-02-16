@@ -15,22 +15,9 @@ theme_set(theme_classic()) # pour définir le thème des graphs de ggplot
 library(splines) # model en splines
 library(mgcv) #Generalized additive models
 
-#library(plyr) #Manipulation de la data
-#library(dplyr)
-#library(purrr)
-#library(stringr)
-
 library(readxl) # Manipulation des excels
-#library(writexl)
-#library(openxlsx)
-
-#library(ggalt) # pour la partie graphique
 library(ggstatsplot) #visualisation statistique
-#library(ggridges)
-#library(scales)
 
-#library(pivottabler) # Pour les pivottables
-#library(reshape2)
 
 if(Sys.getenv("RSTUDIO") == "1"){
   setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) #Definition du répertoire de travail
@@ -43,6 +30,13 @@ if(Sys.getenv("RSTUDIO") == "1"){
 RR_data <- read_excel("RR.xlsx",sheet = "Mean") %>%
   select(-"Debt category")
 names(RR_data) <- c("Country", "Year", "Debt","Growth")
+
+# Split the data into training and test set
+set.seed(123)
+training.samples <- RR_data$Growth %>%
+  createDataPartition(p = 0.8, list = FALSE)
+RR.train.data  <- RR_data[training.samples, ]
+RR.test.data <- RR_data[-training.samples, ]
 
 ################################
 ### Recherche de corrélation ###
@@ -73,6 +67,108 @@ RR_data %>%
   geom_point(colour = "blue") +
   stat_smooth(colour ="green") +
   geom_smooth(method = "lm", fill = NA, colour = "red")
+
+
+##########Test de différents types de corrélation
+##### régression linéaire
+##### Growth = b0 + b1*Debt
+
+# Build the model
+model <- lm(Growth ~ Debt, data = RR.train.data)
+
+# Make predictions
+predictions <- model %>% predict(RR.test.data)
+# Model performance
+data.frame(
+  RMSE = RMSE(predictions, RR.test.data$Growth),
+  R2 = R2(predictions, RR.test.data$Growth)
+)
+
+ggplot(RR.train.data, aes(x = Debt, y = Growth) ) +
+  geom_point() +
+  stat_smooth(method = lm, formula = y ~ x)
+
+##### Régression polynomial
+##### Growth=b0+b1∗Debt+b2∗Debt^2
+lm(Growth ~ Debt + I(Debt^2), data = RR.train.data)
+lm(Growth ~ poly(Debt, 2, raw = TRUE), data = RR.train.data)  #formule alternative
+
+## Rang 6
+lm(Growth ~ poly(Debt, 6, raw = TRUE), data = RR.train.data) %>%
+  summary() ## On voit que les termes de rang sup à 5 ne sont pas significatifs
+
+# Build the model
+model <- lm(Growth ~ poly(Debt, 5, raw = TRUE), data = RR.train.data)
+# Make predictions
+predictions <- model %>% predict(RR.test.data)
+# Model performance
+data.frame(
+  RMSE = RMSE(predictions, RR.test.data$Growth),
+  R2 = R2(predictions, RR.test.data$Growth)
+)
+
+ggplot(RR.train.data, aes(x = Debt, y = Growth) ) +
+  geom_point() +
+  stat_smooth(method = lm, formula = y ~ poly(x, 5, raw = TRUE))
+
+##### Régression logarithmique
+##### 
+
+# Build the model
+model <- lm(Growth ~ log(Debt), data = RR.train.data)
+# Make predictions
+predictions <- model %>% predict(RR.test.data)
+# Model performance
+data.frame(
+  RMSE = RMSE(predictions, RR.test.data$Growth),
+  R2 = R2(predictions, RR.test.data$Growth)
+)
+
+ggplot(RR.train.data, aes(x = Debt, y = Growth) ) +
+  geom_point() +
+  stat_smooth(method = lm, formula = y ~ log(x))
+
+
+##### Régression en spline
+#####
+#You need to specify two parameters: the degree of the polynomial and the location of the knots. In our example, we’ll place the knots at the lower quartile, the median quartile, and the upper quartile:
+
+# Build the model (cubic splines i.e degree 3)
+knots <- quantile(RR.train.data$Debt, p = c(0.25, 0.5, 0.75))
+model <- lm (Growth ~ bs(Debt, knots = knots), data = RR.train.data)
+# Make predictions
+predictions <- model %>% predict(RR.test.data)
+# Model performance
+data.frame(
+  RMSE = RMSE(predictions, RR.test.data$Growth),
+  R2 = R2(predictions, RR.test.data$Growth)
+)
+
+#Note that, the coefficients for a spline term are not interpretable.
+
+ggplot(RR.train.data, aes(x = Debt, y = Growth) ) +
+  geom_point() +
+  stat_smooth(method = lm, formula = y ~ splines::bs(x, df = 3))
+
+##### Generalized additive models
+#####
+
+# Build the model
+model <- gam(Growth ~ s(Debt), data = RR.train.data)
+#The term s(lstat) tells the gam() function to find the “best” knots for a spline term.
+
+# Make predictions
+predictions <- model %>% predict(RR.test.data)
+# Model performance
+data.frame(
+  RMSE = RMSE(predictions, RR.test.data$Growth),
+  R2 = R2(predictions, RR.test.data$Growth)
+)
+
+ggplot(RR.train.data, aes(x = Debt, y = Growth) ) +
+  geom_point() +
+  stat_smooth(method = gam, formula = y ~ s(x))
+
 
 #################################
 ### Tutorial : ##################
